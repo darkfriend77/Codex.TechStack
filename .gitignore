@@ -1,0 +1,6 @@
+bin/
+obj/
+*.csv
+*.user
+.vscode/
+error_dump_*.html
