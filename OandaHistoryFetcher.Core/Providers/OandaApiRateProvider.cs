@@ -28,12 +28,12 @@ public sealed class OandaApiRateProvider : IRateProvider
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("OandaHistoryFetcher/1.0 (+https://example.com)");
     }
 
-    public async Task<decimal> GetRateAsync(string fromCurrency, string toCurrency, decimal amount, DateOnly date, CancellationToken cancellationToken = default)
+    public Task<decimal> GetRateAsync(string fromCurrency, string toCurrency, decimal amount, DateOnly date, CancellationToken cancellationToken = default)
     {
         // This is intentionally a scaffold. Replace with the documented OANDA historical endpoint.
         var message = "OANDA API integration not wired yet. Please implement the HTTP call to the official endpoint.";
         _logger?.LogWarning("API mode hit placeholder for {Date} {From}/{To}", date, fromCurrency, toCurrency);
-        throw new RateFetchError(date, "api", message, isRetryable: false);
+        return Task.FromException<decimal>(new RateFetchError(date, "api", message, isRetryable: false));
     }
 
     public ValueTask DisposeAsync()

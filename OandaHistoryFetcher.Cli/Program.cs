@@ -10,7 +10,7 @@ internal class Program
 {
     private static async Task<int> Main(string[] args)
     {
-        if (!AppOptions.TryParse(args, out var options, out var error))
+        if (!AppOptions.TryParse(args, out var parsedOptions, out var error))
         {
             if (error == "help")
             {
@@ -23,9 +23,11 @@ internal class Program
             return 1;
         }
 
+        var options = parsedOptions ?? throw new InvalidOperationException("Options should never be null after successful parse.");
+
         using var loggerFactory = LoggerFactory.Create(builder =>
         {
-            builder.SetMinimumLevel(options!.LogLevel);
+            builder.SetMinimumLevel(options.LogLevel);
             builder.AddConsole();
         });
 
