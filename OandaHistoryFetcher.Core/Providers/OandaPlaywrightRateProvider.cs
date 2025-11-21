@@ -16,7 +16,7 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
     private readonly int _maxRetries;
     private readonly ILogger? _logger;
     private readonly bool _headless;
-    
+
     private IPlaywright? _playwright;
     private IBrowser? _browser;
     private IPage? _page;
@@ -83,8 +83,8 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
                     fromCurrency, toCurrency, date, attempt + 1);
 
                 // Navigate to converter page if not already there or currencies changed
-                if (_currentFromCurrency != fromCurrency || 
-                    _currentToCurrency != toCurrency || 
+                if (_currentFromCurrency != fromCurrency ||
+                    _currentToCurrency != toCurrency ||
                     _currentAmount != amount)
                 {
                     await NavigateToConverterAsync(fromCurrency, toCurrency, amount, cancellationToken);
@@ -158,7 +158,7 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
 
             // Wait for the converter to be ready by waiting for key elements
             await _page.WaitForSelectorAsync("input", new() { Timeout = 10000 });
-            
+
             // Give it extra time for any dynamic content
             await Task.Delay(3000, cancellationToken);
         }
@@ -221,16 +221,16 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
             // Clear existing value and set new date
             await dateInput.ClickAsync();
             await Task.Delay(300, cancellationToken);
-            
+
             // Select all text and delete
             await dateInput.PressAsync("Control+A");
             await dateInput.PressAsync("Backspace");
             await Task.Delay(200, cancellationToken);
-            
+
             // Type the new date character by character
             await _page.Keyboard.TypeAsync(formattedDate, new() { Delay = 50 });
             await Task.Delay(300, cancellationToken);
-            
+
             // Press Enter or Tab to confirm
             await dateInput.PressAsync("Enter");
 
@@ -278,7 +278,7 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
                         resultLocator = locator.First;
                         await resultLocator.WaitForAsync(new() { Timeout = 5000, State = WaitForSelectorState.Visible });
                         resultText = await resultLocator.InnerTextAsync();
-                        
+
                         if (!string.IsNullOrWhiteSpace(resultText))
                         {
                             _logger?.LogDebug("Found result with selector {Selector}: {Text}", selector, resultText);
@@ -296,9 +296,9 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
             {
                 // Last resort: try to find any element with a large numeric value
                 var allText = await _page.TextContentAsync("body") ?? "";
-                _logger?.LogDebug("Could not find result with specific selectors. Page content: {Content}", 
+                _logger?.LogDebug("Could not find result with specific selectors. Page content: {Content}",
                     allText.Length > 500 ? allText.Substring(0, 500) + "..." : allText);
-                
+
                 throw new Exception("Could not find result element");
             }
 
@@ -354,7 +354,7 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
             normalized = cleaned.Replace(".", "").Replace(",", "");
         }
 
-        if (decimal.TryParse(normalized, NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign, 
+        if (decimal.TryParse(normalized, NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign,
             CultureInfo.InvariantCulture, out var result))
         {
             return result;
