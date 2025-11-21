@@ -21,8 +21,9 @@ class Program
 
         var fromOption = new Option<string>("--from-currency", "Source currency code (e.g. BTC)") { IsRequired = true };
         var toOption = new Option<string>("--to-currency", "Target currency code (e.g. CHF)") { IsRequired = true };
-        var startDateOption = new Option<string>("--start-date", "Start date (YYYY-MM-DD)") { IsRequired = true };
-        var endDateOption = new Option<string>("--end-date", "End date (YYYY-MM-DD)") { IsRequired = true };
+        var startDateOption = new Option<string?>("--start-date", "Start date (YYYY-MM-DD)");
+        var endDateOption = new Option<string?>("--end-date", "End date (YYYY-MM-DD)");
+        var datesOption = new Option<string?>("--dates", "Comma-separated list of dates (e.g. 21.02.2025, 22.02.2025)");
         var amountOption = new Option<decimal>("--amount", () => 1.0m, "Amount to convert");
         var outputOption = new Option<string>("--output", () => "./rates.csv", "Output CSV file path");
         var modeOption = new Option<string>("--mode", () => "auto", "Mode: api, scrape, auto");
@@ -36,6 +37,7 @@ class Program
         rootCommand.AddOption(toOption);
         rootCommand.AddOption(startDateOption);
         rootCommand.AddOption(endDateOption);
+        rootCommand.AddOption(datesOption);
         rootCommand.AddOption(amountOption);
         rootCommand.AddOption(outputOption);
         rootCommand.AddOption(modeOption);
@@ -49,8 +51,9 @@ class Program
         {
             var from = context.ParseResult.GetValueForOption(fromOption)!;
             var to = context.ParseResult.GetValueForOption(toOption)!;
-            var startStr = context.ParseResult.GetValueForOption(startDateOption)!;
-            var endStr = context.ParseResult.GetValueForOption(endDateOption)!;
+            var startStr = context.ParseResult.GetValueForOption(startDateOption);
+            var endStr = context.ParseResult.GetValueForOption(endDateOption);
+            var datesStr = context.ParseResult.GetValueForOption(datesOption);
             var amount = context.ParseResult.GetValueForOption(amountOption);
             var output = context.ParseResult.GetValueForOption(outputOption)!;
             var mode = context.ParseResult.GetValueForOption(modeOption)!;
@@ -80,24 +83,66 @@ class Program
             });
             var logger = loggerFactory.CreateLogger<Program>();
 
-            // Validation
-            if (!DateOnly.TryParse(startStr, out var startDate))
+            // Validation & Date Parsing
+            var targetDates = new List<DateOnly>();
+
+            if (!string.IsNullOrWhiteSpace(datesStr))
             {
-                logger.LogError("Invalid start date format.");
-                context.ExitCode = 1;
-                return;
+                var parts = datesStr.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                foreach (var part in parts)
+                {
+                    if (DateOnly.TryParseExact(part, new[] { "yyyy-MM-dd", "dd.MM.yyyy" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                    {
+                        targetDates.Add(date);
+                    }
+                    else
+                    {
+                        logger.LogError("Invalid date format in list: {Date}. Use YYYY-MM-DD or DD.MM.YYYY", part);
+                        context.ExitCode = 1;
+                        return;
+                    }
+                }
+                targetDates.Sort();
             }
-            if (!DateOnly.TryParse(endStr, out var endDate))
+            else
             {
-                logger.LogError("Invalid end date format.");
-                context.ExitCode = 1;
-                return;
+                if (string.IsNullOrWhiteSpace(startStr) || string.IsNullOrWhiteSpace(endStr))
+                {
+                    logger.LogError("Either --dates OR (--start-date AND --end-date) must be provided.");
+                    context.ExitCode = 1;
+                    return;
+                }
+
+                if (!DateOnly.TryParse(startStr, out var startDate))
+                {
+                    logger.LogError("Invalid start date format.");
+                    context.ExitCode = 1;
+                    return;
+                }
+                if (!DateOnly.TryParse(endStr, out var endDate))
+                {
+                    logger.LogError("Invalid end date format.");
+                    context.ExitCode = 1;
+                    return;
+                }
+                if (startDate > endDate)
+                {
+                    logger.LogError("Start date must be before or equal to end date.");
+                    context.ExitCode = 1;
+                    return;
+                }
+
+                for (var date = startDate; date <= endDate; date = date.AddDays(1))
+                {
+                    targetDates.Add(date);
+                }
             }
-            if (startDate > endDate)
+
+            if (targetDates.Count == 0)
             {
-                logger.LogError("Start date must be before or equal to end date.");
-                context.ExitCode = 1;
-                return;
+                 logger.LogError("No valid dates to process.");
+                 context.ExitCode = 1;
+                 return;
             }
 
             // Mode Selection
@@ -142,7 +187,7 @@ class Program
                 }
 
                 // Execution Loop
-                logger.LogInformation("Starting fetch: {From}->{To} from {Start} to {End} using {Mode}", from, to, startDate, endDate, activeMode);
+                logger.LogInformation("Starting fetch: {From}->{To} for {Count} dates using {Mode}", from, to, targetDates.Count, activeMode);
 
                 // Prepare CSV
                 var csvHeader = "date,from_currency,to_currency,amount,rate,source,status,error_message";
@@ -159,7 +204,7 @@ class Program
                 int successCount = 0;
                 int errorCount = 0;
 
-                for (var date = startDate; date <= endDate; date = date.AddDays(1))
+                foreach (var date in targetDates)
                 {
                     totalDays++;
                     RateRecord record;
@@ -189,7 +234,7 @@ class Program
                     await writer.FlushAsync(); // Flush often to save progress
 
                     // Delay
-                    if (date < endDate) // Don't delay after last
+                    if (date != targetDates[targetDates.Count - 1]) // Don't delay after last
                         await Task.Delay(delayMs);
                 }
 
