@@ -144,18 +144,29 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
 
         _logger?.LogDebug("Navigating to {Url}", url);
 
-        await _page.GotoAsync(url, new()
+        try
         {
-            WaitUntil = WaitUntilState.NetworkIdle,
-            Timeout = 30000
-        });
+            await _page.GotoAsync(url, new()
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 60000
+            });
 
-        _currentFromCurrency = fromCurrency;
-        _currentToCurrency = toCurrency;
-        _currentAmount = amount;
+            _currentFromCurrency = fromCurrency;
+            _currentToCurrency = toCurrency;
+            _currentAmount = amount;
 
-        // Wait a moment for the page to fully load
-        await Task.Delay(1000, cancellationToken);
+            // Wait for the converter to be ready by waiting for key elements
+            await _page.WaitForSelectorAsync("input", new() { Timeout = 10000 });
+            
+            // Give it extra time for any dynamic content
+            await Task.Delay(3000, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to navigate to converter");
+            throw;
+        }
     }
 
     private async Task SetDateAsync(DateOnly date, CancellationToken cancellationToken)
@@ -168,45 +179,37 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
 
         try
         {
-            // Try to find the date input - OANDA may use different selectors
-            // We'll try multiple approaches
+            // Look for the date input inside the datepicker wrapper
+            // OANDA uses a React datepicker component
             ILocator? dateInput = null;
 
-            // Approach 1: Look for input with placeholder or aria-label containing "date"
-            var inputs = await _page.Locator("input").AllAsync();
-            foreach (var input in inputs)
+            // Try to find input within the datepicker wrapper
+            var datePickerSelectors = new[]
             {
-                var placeholder = await input.GetAttributeAsync("placeholder");
-                var ariaLabel = await input.GetAttributeAsync("aria-label");
-                var type = await input.GetAttributeAsync("type");
+                ".react-datepicker-wrapper input",
+                "[class*='datepicker'] input",
+                "input[placeholder*='date' i]",
+                "input[type='text']"
+            };
 
-                if ((placeholder?.Contains("date", StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (ariaLabel?.Contains("date", StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    type == "date")
-                {
-                    dateInput = input;
-                    break;
-                }
-            }
-
-            if (dateInput == null)
+            foreach (var selector in datePickerSelectors)
             {
-                // Approach 2: Look for common date picker classes or IDs
-                var selectors = new[]
+                var locator = _page.Locator(selector);
+                if (await locator.CountAsync() > 0)
                 {
-                    "[data-testid*='date']",
-                    "[class*='date-picker']",
-                    "[class*='datepicker']",
-                    "input[type='text'][class*='date']"
-                };
-
-                foreach (var selector in selectors)
-                {
-                    if (await _page.Locator(selector).CountAsync() > 0)
+                    // Find the first visible and enabled input
+                    var count = await locator.CountAsync();
+                    for (int i = 0; i < count; i++)
                     {
-                        dateInput = _page.Locator(selector).First;
-                        break;
+                        var element = locator.Nth(i);
+                        if (await element.IsVisibleAsync() && await element.IsEnabledAsync())
+                        {
+                            dateInput = element;
+                            _logger?.LogDebug("Found date input with selector: {Selector}", selector);
+                            break;
+                        }
                     }
+                    if (dateInput != null) break;
                 }
             }
 
@@ -217,10 +220,18 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
 
             // Clear existing value and set new date
             await dateInput.ClickAsync();
-            await dateInput.FillAsync("");
+            await Task.Delay(300, cancellationToken);
+            
+            // Select all text and delete
+            await dateInput.PressAsync("Control+A");
+            await dateInput.PressAsync("Backspace");
             await Task.Delay(200, cancellationToken);
-            await dateInput.FillAsync(formattedDate);
-            await Task.Delay(200, cancellationToken);
+            
+            // Type the new date character by character
+            await _page.Keyboard.TypeAsync(formattedDate, new() { Delay = 50 });
+            await Task.Delay(300, cancellationToken);
+            
+            // Press Enter or Tab to confirm
             await dateInput.PressAsync("Enter");
 
             // Wait for the page to update with new date
