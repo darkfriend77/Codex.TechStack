@@ -17,9 +17,10 @@ public class AppConfig
     public int MaxRetries { get; init; } = 3;
     public string LogLevel { get; init; } = "info";
     public bool AcknowledgeScraping { get; init; }
+    public bool Headless { get; init; } = true;
 
     public TimeSpan Delay => TimeSpan.FromMilliseconds(DelayMs);
-    
+
     public bool HasApiKey => !string.IsNullOrWhiteSpace(OandaApiKey);
 
     public string ActiveMode => Mode.ToLowerInvariant() switch
@@ -34,19 +35,19 @@ public class AppConfig
     {
         if (string.IsNullOrWhiteSpace(FromCurrency))
             throw new ArgumentException("From currency is required");
-        
+
         if (string.IsNullOrWhiteSpace(ToCurrency))
             throw new ArgumentException("To currency is required");
-        
+
         if (StartDate > EndDate)
             throw new ArgumentException("Start date must be before or equal to end date");
-        
+
         if (Amount <= 0)
             throw new ArgumentException("Amount must be greater than 0");
-        
+
         if (DelayMs < 0)
             throw new ArgumentException("Delay must be non-negative");
-        
+
         if (MaxRetries < 0)
             throw new ArgumentException("Max retries must be non-negative");
 

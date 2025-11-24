@@ -46,6 +46,7 @@ static async Task<int> RunAsync(string[] args)
         var maxRetries = int.Parse(GetArg("--max-retries", "3"));
         var logLevel = GetArg("--log-level", "info");
         var acknowledgeScraping = HasArg("--acknowledge-scraping");
+        var headless = !HasArg("--visible");
 
         // Validate required arguments
         if (string.IsNullOrWhiteSpace(fromCurrency))
@@ -78,8 +79,8 @@ static async Task<int> RunAsync(string[] args)
         var endDate = DateUtils.ParseDateString(endDateStr);
 
         // Get API key from environment if not provided
-        var effectiveApiKey = string.IsNullOrWhiteSpace(apiKey) 
-            ? Environment.GetEnvironmentVariable("OANDA_API_KEY") 
+        var effectiveApiKey = string.IsNullOrWhiteSpace(apiKey)
+            ? Environment.GetEnvironmentVariable("OANDA_API_KEY")
             : apiKey;
 
         // Build configuration
@@ -96,7 +97,8 @@ static async Task<int> RunAsync(string[] args)
             DelayMs = delayMs,
             MaxRetries = maxRetries,
             LogLevel = logLevel.ToLowerInvariant(),
-            AcknowledgeScraping = acknowledgeScraping
+            AcknowledgeScraping = acknowledgeScraping,
+            Headless = headless
         };
 
         // Validate configuration
@@ -135,13 +137,13 @@ static async Task<int> RunAsync(string[] args)
                 config.Delay,
                 config.MaxRetries,
                 loggerFactory.CreateLogger<OandaApiRateProvider>()),
-            
+
             "scrape" => new OandaPlaywrightRateProvider(
                 config.Delay,
                 config.MaxRetries,
                 loggerFactory.CreateLogger<OandaPlaywrightRateProvider>(),
-                headless: true),
-            
+                headless: config.Headless),
+
             _ => throw new ArgumentException($"Invalid mode: {config.ActiveMode}")
         };
 
@@ -172,7 +174,7 @@ static async Task<int> RunAsync(string[] args)
             {
                 try
                 {
-                    logger.LogInformation("[{Current}/{Total}] Fetching rate for {Date}...", 
+                    logger.LogInformation("[{Current}/{Total}] Fetching rate for {Date}...",
                         index + 1, totalDates, date);
 
                     var rate = await rateProvider.GetRateAsync(

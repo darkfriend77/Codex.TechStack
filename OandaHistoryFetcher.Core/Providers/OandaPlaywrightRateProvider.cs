@@ -255,14 +255,16 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
 
         try
         {
-            // Wait for result to appear - try multiple selectors
+            // Wait a moment for the conversion to complete
+            await Task.Delay(2000, cancellationToken);
+
+            // Try to find the result using various strategies
             var resultSelectors = new[]
             {
-                "[data-testid*='result']",
-                "[data-testid*='converted']",
-                "[class*='result']",
-                "[class*='converted-amount']",
-                "[class*='output']"
+                // Common output/result field selectors
+                "input[class*='output']",
+                "input[class*='result']",
+                "input[class*='converted']"
             };
 
             ILocator? resultLocator = null;
@@ -273,33 +275,95 @@ public partial class OandaPlaywrightRateProvider : IRateProvider
                 try
                 {
                     var locator = _page.Locator(selector);
-                    if (await locator.CountAsync() > 0)
-                    {
-                        resultLocator = locator.First;
-                        await resultLocator.WaitForAsync(new() { Timeout = 5000, State = WaitForSelectorState.Visible });
-                        resultText = await resultLocator.InnerTextAsync();
+                    var count = await locator.CountAsync();
 
-                        if (!string.IsNullOrWhiteSpace(resultText))
+                    if (count > 0)
+                    {
+                        _logger?.LogDebug("Found {Count} elements with selector {Selector}", count, selector);
+
+                        var element = locator.First;
+                        if (await element.IsVisibleAsync())
                         {
-                            _logger?.LogDebug("Found result with selector {Selector}: {Text}", selector, resultText);
-                            break;
+                            resultText = await element.InputValueAsync();
+
+                            if (!string.IsNullOrWhiteSpace(resultText))
+                            {
+                                var cleaned = new string(resultText.Where(c => char.IsDigit(c) || c == '.' || c == ',' || c == '-').ToArray());
+                                if (cleaned.Length > 0)
+                                {
+                                    _logger?.LogDebug("Found result with selector {Selector}: {Text}", selector, resultText);
+                                    resultLocator = element;
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    _logger?.LogDebug("Selector {Selector} failed: {Error}", selector, ex.Message);
                     continue;
+                }
+            }
+
+            // Fallback: Find all text inputs and skip the amount field
+            if (string.IsNullOrWhiteSpace(resultText))
+            {
+                try
+                {
+                    var allInputs = _page.Locator("input[type='text']");
+                    var count = await allInputs.CountAsync();
+                    _logger?.LogDebug("Fallback: Found {Count} text inputs", count);
+
+                    for (int i = 0; i < count; i++)
+                    {
+                        var element = allInputs.Nth(i);
+
+                        if (!await element.IsVisibleAsync())
+                            continue;
+
+                        var value = await element.InputValueAsync();
+                        _logger?.LogDebug("Input[{Index}] value: {Value}", i, value);
+
+                        if (!string.IsNullOrWhiteSpace(value))
+                        {
+                            var cleaned = new string(value.Where(c => char.IsDigit(c) || c == '.' || c == ',' || c == '-').ToArray());
+                            if (cleaned.Length > 0 && decimal.TryParse(cleaned.Replace(",", ""), NumberStyles.Any, CultureInfo.InvariantCulture, out var testValue))
+                            {
+                                // Skip if this is the amount field
+                                if (Math.Abs(testValue - amount) < 0.01m)
+                                {
+                                    _logger?.LogDebug("Skipping input[{Index}] - matches amount", i);
+                                    continue;
+                                }
+
+                                // This should be the conversion result
+                                _logger?.LogDebug("Using input[{Index}] as result: {Value}", i, value);
+                                resultText = value;
+                                resultLocator = element;
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogDebug(ex, "Fallback input search failed");
                 }
             }
 
             if (string.IsNullOrWhiteSpace(resultText))
             {
-                // Last resort: try to find any element with a large numeric value
-                var allText = await _page.TextContentAsync("body") ?? "";
-                _logger?.LogDebug("Could not find result with specific selectors. Page content: {Content}",
-                    allText.Length > 500 ? allText.Substring(0, 500) + "..." : allText);
+                // Debug: Take a screenshot and dump page content
+                var screenshotPath = $"debug_screenshot_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}.png";
+                await _page.ScreenshotAsync(new() { Path = screenshotPath });
+                _logger?.LogWarning("Saved debug screenshot to {Path}", screenshotPath);
 
-                throw new Exception("Could not find result element");
+                var allText = await _page.TextContentAsync("body") ?? "";
+                _logger?.LogDebug("Page content: {Content}",
+                    allText.Length > 1000 ? allText.Substring(0, 1000) + "..." : allText);
+
+                throw new Exception("Could not find result element with numeric value");
             }
 
             // Parse the numeric value

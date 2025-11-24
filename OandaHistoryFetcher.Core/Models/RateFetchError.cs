@@ -10,10 +10,10 @@ public class RateFetchError : Exception
     public bool IsRetryable { get; }
 
     public RateFetchError(
-        DateOnly date, 
-        string sourceMode, 
-        string message, 
-        bool isRetryable, 
+        DateOnly date,
+        string sourceMode,
+        string message,
+        bool isRetryable,
         Exception? inner = null)
         : base(message, inner)
     {

@@ -27,10 +27,10 @@ public static class DateUtils
     public static DateOnly ParseDateString(string dateString)
     {
         if (!DateOnly.TryParseExact(
-            dateString, 
-            "yyyy-MM-dd", 
+            dateString,
+            "yyyy-MM-dd",
             System.Globalization.CultureInfo.InvariantCulture,
-            System.Globalization.DateTimeStyles.None, 
+            System.Globalization.DateTimeStyles.None,
             out var result))
         {
             throw new FormatException($"Invalid date format: {dateString}. Expected format: YYYY-MM-DD");
